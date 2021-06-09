@@ -219,7 +219,11 @@ func (store S3Store) NewUpload(ctx context.Context, info handler.FileInfo) (hand
 
 	var uploadId string
 	if info.ID == "" {
-		uploadId = uid.Uid()
+		if md5, ok := info.MetaData["md5"]; ok {
+			uploadId = md5
+		} else {
+			uploadId = uid.Uid()
+		}
 	} else {
 		// certain tests set info.ID in advance
 		uploadId = info.ID
