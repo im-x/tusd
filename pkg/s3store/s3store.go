@@ -502,7 +502,9 @@ func (upload s3Upload) fetchInfo(ctx context.Context) (info handler.FileInfo, er
 		// when the multipart upload has already been completed or aborted. Since
 		// we already found the info object, we know that the upload has been
 		// completed and therefore can ensure the the offset is the size.
-		if isAwsError(err, "NoSuchUpload") {
+		// AWS S3 returns NoSuchUpload, but other implementations, such as DigitalOcean
+		// Spaces, can also return NoSuchKey.
+		if isAwsError(err, "NoSuchUpload") || isAwsError(err, "NoSuchKey") {
 			info.Offset = info.Size
 			return info, nil
 		} else {
@@ -562,7 +564,7 @@ func (upload s3Upload) GetReader(ctx context.Context) (io.Reader, error) {
 	})
 	if err == nil {
 		// The multipart upload still exists, which means we cannot download it yet
-		return nil, errors.New("cannot stream non-finished upload")
+		return nil, handler.NewHTTPError(errors.New("cannot stream non-finished upload"), http.StatusBadRequest)
 	}
 
 	if isAwsError(err, "NoSuchUpload") {

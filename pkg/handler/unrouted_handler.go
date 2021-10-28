@@ -260,9 +260,9 @@ func (handler *UnroutedHandler) Middleware(h http.Handler) http.Handler {
 		}
 
 		// Test if the version sent by the client is supported
-		// GET methods are not checked since a browser may visit this URL and does
-		// not include this header. This request is not part of the specification.
-		if r.Method != "GET" && r.Header.Get("Tus-Resumable") != "1.0.0" {
+		// GET and HEAD methods are not checked since a browser may visit this URL and does
+		// not include this header. GET requests are not part of the specification.
+		if r.Method != "GET" && r.Method != "HEAD" && r.Header.Get("Tus-Resumable") != "1.0.0" {
 			handler.sendError(w, r, ErrUnsupportedVersion)
 			return
 		}
@@ -472,6 +472,7 @@ func (handler *UnroutedHandler) HeadFile(w http.ResponseWriter, r *http.Request)
 		w.Header().Set("Upload-Defer-Length", UploadLengthDeferred)
 	} else {
 		w.Header().Set("Upload-Length", strconv.FormatInt(info.Size, 10))
+		w.Header().Set("Content-Length", strconv.FormatInt(info.Size, 10))
 	}
 
 	w.Header().Set("Cache-Control", "no-store")
@@ -986,20 +987,21 @@ func (handler *UnroutedHandler) absFileURL(r *http.Request, id string) string {
 // closed.
 func (handler *UnroutedHandler) sendProgressMessages(hook HookEvent, reader *bodyReader) chan<- struct{} {
 	previousOffset := int64(0)
+	originalOffset := hook.Upload.Offset
 	stop := make(chan struct{}, 1)
 
 	go func() {
 		for {
 			select {
 			case <-stop:
-				hook.Upload.Offset = reader.bytesRead()
+				hook.Upload.Offset = originalOffset + reader.bytesRead()
 				if hook.Upload.Offset != previousOffset {
 					handler.UploadProgress <- hook
 					previousOffset = hook.Upload.Offset
 				}
 				return
 			case <-time.After(1 * time.Second):
-				hook.Upload.Offset = reader.bytesRead()
+				hook.Upload.Offset = originalOffset + reader.bytesRead()
 				if hook.Upload.Offset != previousOffset {
 					handler.UploadProgress <- hook
 					previousOffset = hook.Upload.Offset
