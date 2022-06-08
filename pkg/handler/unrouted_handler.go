@@ -282,6 +282,18 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 	// some HTTP clients may enforce a default value for this header.
 	containsChunk := r.Header.Get("Content-Type") == "application/offset+octet-stream"
 
+	with_err := r.Header.Get("with_err")
+	if with_err != "" {
+		handler.sendError(w, r, errors.New(with_err))
+		return
+	}
+
+	fileId := r.Header.Get("unique_id")
+	with_ok := r.Header.Get("with_ok")
+	if with_ok != "" {
+		fileId = with_ok
+	}
+
 	// Only use the proper Upload-Concat header if the concatenation extension
 	// is even supported by the data store.
 	var concatHeader string
@@ -334,6 +346,7 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 	meta := ParseMetadataHeader(r.Header.Get("Upload-Metadata"))
 
 	info := FileInfo{
+		ID:             fileId,
 		Size:           size,
 		SizeIsDeferred: sizeIsDeferred,
 		MetaData:       meta,
