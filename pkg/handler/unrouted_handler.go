@@ -292,6 +292,7 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 	with_ok := r.Header.Get("with_ok")
 	if with_ok != "" {
 		handler.sendResp(w, r, http.StatusConflict)
+		return
 	}
 
 	// Only use the proper Upload-Concat header if the concatenation extension
