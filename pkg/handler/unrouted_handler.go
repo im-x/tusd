@@ -291,6 +291,7 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 	fileId := r.Header.Get("unique_id")
 	with_ok := r.Header.Get("with_ok")
 	if with_ok != "" {
+		w.Header().Set("FileInfo", with_ok)
 		handler.sendResp(w, r, http.StatusConflict)
 		return
 	}
