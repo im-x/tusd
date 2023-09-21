@@ -434,7 +434,12 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 // HeadFile returns the length and offset for the HEAD request
 func (handler *UnroutedHandler) HeadFile(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-
+	if handler.config.PreHeadFileCallback != nil {
+		if err := handler.config.PreHeadFileCallback(r); err != nil {
+			handler.sendError(w, r, err)
+			return
+		}
+	}
 	id, err := extractIDFromPath(r.URL.Path)
 	if err != nil {
 		handler.sendError(w, r, err)
@@ -727,7 +732,12 @@ func (handler *UnroutedHandler) finishUploadIfComplete(ctx context.Context, uplo
 // part of the specification.
 func (handler *UnroutedHandler) GetFile(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-
+	if handler.config.PreGetFileCallback != nil {
+		if err := handler.config.PreGetFileCallback(r); err != nil {
+			handler.sendError(w, r, err)
+			return
+		}
+	}
 	id, err := extractIDFromPath(r.URL.Path)
 	if err != nil {
 		handler.sendError(w, r, err)
