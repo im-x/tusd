@@ -3,7 +3,6 @@ package handler
 import (
 	"errors"
 	"log"
-	"net/http"
 	"net/url"
 	"os"
 )
@@ -50,10 +49,6 @@ type Config struct {
 	// a response is returned to the client. Error responses from the callback will be passed
 	// back to the client. This can be used to implement post-processing validation.
 	PreFinishResponseCallback func(hook HookEvent) error
-	// PreGetFileCallback will be invoked before get file
-	PreGetFileCallback func(r *http.Request) error
-	// PreHeadFileCallback will be invoked before head file
-	PreHeadFileCallback func(r *http.Request) error
 }
 
 func (config *Config) validate() error {
