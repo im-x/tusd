@@ -49,7 +49,10 @@ type Config struct {
 	// PreFinishResponseCallback will be invoked after an upload is completed but before
 	// a response is returned to the client. Error responses from the callback will be passed
 	// back to the client. This can be used to implement post-processing validation.
+	// 这个方法是每次上传完成之前的callback，而不仅仅是整个文件上传完成
 	PreFinishResponseCallback func(hook HookEvent) error
+	// PreCompleteUploadsCallBack 文件上传完成后的处理
+	PreCompleteUploadsCallBack func(hook HookEvent) error
 	// PreGetFileCallback will be invoked before get file
 	PreGetFileCallback func(r *http.Request) error
 	// PreHeadFileCallback will be invoked before head file
