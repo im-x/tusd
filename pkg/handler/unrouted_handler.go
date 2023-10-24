@@ -401,6 +401,12 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 		if handler.config.NotifyCompleteUploads {
 			handler.CompleteUploads <- newHookEvent(info, r)
 		}
+		if handler.config.PreCompleteUploadsCallBack != nil {
+			if err := handler.config.PreCompleteUploadsCallBack(newHookEvent(info, r)); err != nil {
+				handler.sendError(w, r, err)
+				return
+			}
+		}
 	}
 
 	if containsChunk {
@@ -715,7 +721,11 @@ func (handler *UnroutedHandler) finishUploadIfComplete(ctx context.Context, uplo
 		if handler.config.NotifyCompleteUploads {
 			handler.CompleteUploads <- newHookEvent(info, r)
 		}
-
+		if handler.config.PreCompleteUploadsCallBack != nil {
+			if err := handler.config.PreCompleteUploadsCallBack(newHookEvent(info, r)); err != nil {
+				return err
+			}
+		}
 		handler.Metrics.incUploadsFinished()
 
 		if handler.config.PreFinishResponseCallback != nil {
