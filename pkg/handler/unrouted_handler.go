@@ -95,9 +95,11 @@ type HookEvent struct {
 	// HTTPRequest contains details about the HTTP request that reached
 	// tusd.
 	HTTPRequest HTTPRequest
+	// HttpResponseWriter HttpResponseWriter
+	HttpResponseWriter http.ResponseWriter
 }
 
-func newHookEvent(info FileInfo, r *http.Request) HookEvent {
+func newHookEvent(info FileInfo, r *http.Request, w http.ResponseWriter) HookEvent {
 	return HookEvent{
 		Upload: info,
 		HTTPRequest: HTTPRequest{
@@ -106,6 +108,7 @@ func newHookEvent(info FileInfo, r *http.Request) HookEvent {
 			RemoteAddr: r.RemoteAddr,
 			Header:     r.Header,
 		},
+		HttpResponseWriter: w,
 	}
 }
 
@@ -358,7 +361,7 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 	}
 
 	if handler.config.PreUploadCreateCallback != nil {
-		if err := handler.config.PreUploadCreateCallback(newHookEvent(info, r)); err != nil {
+		if err := handler.config.PreUploadCreateCallback(newHookEvent(info, r, w)); err != nil {
 			handler.sendError(w, r, err)
 			return
 		}
@@ -387,7 +390,7 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 	handler.log("UploadCreated", "id", id, "size", i64toa(size), "url", url)
 
 	if handler.config.NotifyCreatedUploads {
-		handler.CreatedUploads <- newHookEvent(info, r)
+		handler.CreatedUploads <- newHookEvent(info, r, w)
 	}
 
 	if isFinal {
@@ -399,10 +402,10 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 		info.Offset = size
 
 		if handler.config.NotifyCompleteUploads {
-			handler.CompleteUploads <- newHookEvent(info, r)
+			handler.CompleteUploads <- newHookEvent(info, r, w)
 		}
 		if handler.config.PreCompleteUploadsCallBack != nil {
-			if err := handler.config.PreCompleteUploadsCallBack(newHookEvent(info, r)); err != nil {
+			if err := handler.config.PreCompleteUploadsCallBack(newHookEvent(info, r, w)); err != nil {
 				handler.sendError(w, r, err)
 				return
 			}
@@ -428,7 +431,7 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 		// Directly finish the upload if the upload is empty (i.e. has a size of 0).
 		// This statement is in an else-if block to avoid causing duplicate calls
 		// to finishUploadIfComplete if an upload is empty and contains a chunk.
-		if err := handler.finishUploadIfComplete(ctx, upload, info, r); err != nil {
+		if err := handler.finishUploadIfComplete(ctx, upload, info, r, w); err != nil {
 			handler.sendError(w, r, err)
 			return
 		}
@@ -662,7 +665,7 @@ func (handler *UnroutedHandler) writeChunk(ctx context.Context, upload Upload, i
 		}()
 
 		if handler.config.NotifyUploadProgress {
-			stopProgressEvents := handler.sendProgressMessages(newHookEvent(info, r), reader)
+			stopProgressEvents := handler.sendProgressMessages(newHookEvent(info, r, w), reader)
 			defer close(stopProgressEvents)
 		}
 
@@ -703,13 +706,13 @@ func (handler *UnroutedHandler) writeChunk(ctx context.Context, upload Upload, i
 	handler.Metrics.incBytesReceived(uint64(bytesWritten))
 	info.Offset = newOffset
 
-	return handler.finishUploadIfComplete(ctx, upload, info, r)
+	return handler.finishUploadIfComplete(ctx, upload, info, r, w)
 }
 
 // finishUploadIfComplete checks whether an upload is completed (i.e. upload offset
 // matches upload size) and if so, it will call the data store's FinishUpload
 // function and send the necessary message on the CompleteUpload channel.
-func (handler *UnroutedHandler) finishUploadIfComplete(ctx context.Context, upload Upload, info FileInfo, r *http.Request) error {
+func (handler *UnroutedHandler) finishUploadIfComplete(ctx context.Context, upload Upload, info FileInfo, r *http.Request, w http.ResponseWriter) error {
 	// If the upload is completed, ...
 	if !info.SizeIsDeferred && info.Offset == info.Size {
 		// ... allow custom mechanism to finish and cleanup the upload
@@ -719,17 +722,17 @@ func (handler *UnroutedHandler) finishUploadIfComplete(ctx context.Context, uplo
 
 		// ... send the info out to the channel
 		if handler.config.NotifyCompleteUploads {
-			handler.CompleteUploads <- newHookEvent(info, r)
+			handler.CompleteUploads <- newHookEvent(info, r, w)
 		}
 		if handler.config.PreCompleteUploadsCallBack != nil {
-			if err := handler.config.PreCompleteUploadsCallBack(newHookEvent(info, r)); err != nil {
+			if err := handler.config.PreCompleteUploadsCallBack(newHookEvent(info, r, w)); err != nil {
 				return err
 			}
 		}
 		handler.Metrics.incUploadsFinished()
 
 		if handler.config.PreFinishResponseCallback != nil {
-			if err := handler.config.PreFinishResponseCallback(newHookEvent(info, r)); err != nil {
+			if err := handler.config.PreFinishResponseCallback(newHookEvent(info, r, w)); err != nil {
 				return err
 			}
 		}
@@ -929,7 +932,7 @@ func (handler *UnroutedHandler) terminateUpload(ctx context.Context, upload Uplo
 	}
 
 	if handler.config.NotifyTerminatedUploads {
-		handler.TerminatedUploads <- newHookEvent(info, r)
+		handler.TerminatedUploads <- newHookEvent(info, r, nil)
 	}
 
 	handler.Metrics.incUploadsTerminated()
