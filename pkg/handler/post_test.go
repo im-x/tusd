@@ -40,9 +40,9 @@ func TestPost(t *testing.T) {
 		)
 
 		handler, _ := NewHandler(Config{
-			StoreComposer:        composer,
-			BasePath:             "https://buy.art/files/",
-			NotifyCreatedUploads: true,
+			StoreComposer: composer,
+			BasePath:      "https://buy.art/files/",
+			//NotifyCreatedUploads: true,
 		})
 
 		c := make(chan HookEvent, 1)

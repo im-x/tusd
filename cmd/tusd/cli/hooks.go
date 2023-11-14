@@ -98,7 +98,7 @@ func SetupPreHooks(config *handler.Config) error {
 	}
 
 	config.PreUploadCreateCallback = preCreateCallback
-	config.PreFinishResponseCallback = preFinishCallback
+	//config.PreFinishResponseCallback = preFinishCallback
 
 	return nil
 }
@@ -113,8 +113,8 @@ func SetupPostHooks(handler *handler.Handler) {
 				invokeHookAsync(hooks.HookPostTerminate, info)
 			case info := <-handler.UploadProgress:
 				invokeHookAsync(hooks.HookPostReceive, info)
-			case info := <-handler.CreatedUploads:
-				invokeHookAsync(hooks.HookPostCreate, info)
+				//case info := <-handler.CreatedUploads:
+				//	invokeHookAsync(hooks.HookPostCreate, info)
 			}
 		}
 	}()

@@ -150,7 +150,7 @@ type UnroutedHandler struct {
 	// the ID available already. It facilitates the post-create hook. Sending to
 	// this channel will only happen if the NotifyCreatedUploads field is set to
 	// true in the Config structure.
-	CreatedUploads chan HookEvent
+	//CreatedUploads chan HookEvent
 	// Metrics provides numbers of the usage for this handler.
 	Metrics Metrics
 }
@@ -184,10 +184,10 @@ func NewUnroutedHandler(config Config) (*UnroutedHandler, error) {
 		CompleteUploads:   make(chan HookEvent),
 		TerminatedUploads: make(chan HookEvent),
 		UploadProgress:    make(chan HookEvent),
-		CreatedUploads:    make(chan HookEvent),
-		logger:            config.Logger,
-		extensions:        extensions,
-		Metrics:           newMetrics(),
+		//CreatedUploads:    make(chan HookEvent),
+		logger:     config.Logger,
+		extensions: extensions,
+		Metrics:    newMetrics(),
 	}
 
 	return handler, nil
@@ -389,8 +389,11 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 	handler.Metrics.incUploadsCreated()
 	handler.log("UploadCreated", "id", id, "size", i64toa(size), "url", url)
 
-	if handler.config.NotifyCreatedUploads {
-		handler.CreatedUploads <- newHookEvent(info, r, w)
+	//if handler.config.NotifyCreatedUploads {
+	//	handler.CreatedUploads <- newHookEvent(info, r, w)
+	//}
+	if handler.config.CompleteUploadCreateCallback != nil {
+		handler.config.CompleteUploadCreateCallback(newHookEvent(info, r, w))
 	}
 
 	if isFinal {
@@ -404,8 +407,8 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 		if handler.config.NotifyCompleteUploads {
 			handler.CompleteUploads <- newHookEvent(info, r, w)
 		}
-		if handler.config.PreCompleteUploadsCallBack != nil {
-			if err := handler.config.PreCompleteUploadsCallBack(newHookEvent(info, r, w)); err != nil {
+		if handler.config.CompleteUploadCallBack != nil {
+			if err := handler.config.CompleteUploadCallBack(newHookEvent(info, r, w)); err != nil {
 				handler.sendError(w, r, err)
 				return
 			}
@@ -724,18 +727,18 @@ func (handler *UnroutedHandler) finishUploadIfComplete(ctx context.Context, uplo
 		if handler.config.NotifyCompleteUploads {
 			handler.CompleteUploads <- newHookEvent(info, r, w)
 		}
-		if handler.config.PreCompleteUploadsCallBack != nil {
-			if err := handler.config.PreCompleteUploadsCallBack(newHookEvent(info, r, w)); err != nil {
+		if handler.config.CompleteUploadCallBack != nil {
+			if err := handler.config.CompleteUploadCallBack(newHookEvent(info, r, w)); err != nil {
 				return err
 			}
 		}
 		handler.Metrics.incUploadsFinished()
 
-		if handler.config.PreFinishResponseCallback != nil {
-			if err := handler.config.PreFinishResponseCallback(newHookEvent(info, r, w)); err != nil {
-				return err
-			}
-		}
+		//if handler.config.PreFinishResponseCallback != nil {
+		//	if err := handler.config.PreFinishResponseCallback(newHookEvent(info, r, w)); err != nil {
+		//		return err
+		//	}
+		//}
 	}
 
 	return nil
