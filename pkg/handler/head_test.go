@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
-	. "github.com/tus/tusd/pkg/handler"
+	. "github.com/im-x/tusd/pkg/handler"
 )
 
 func TestHead(t *testing.T) {

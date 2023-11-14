@@ -1,22 +1,23 @@
 // Package s3store provides a storage backend using AWS S3 or compatible servers.
 //
-// Configuration
+// # Configuration
 //
 // In order to allow this backend to function properly, the user accessing the
 // bucket must have at least following AWS IAM policy permissions for the
 // bucket and all of its subresources:
-// 	s3:AbortMultipartUpload
-// 	s3:DeleteObject
-// 	s3:GetObject
-// 	s3:ListMultipartUploadParts
-// 	s3:PutObject
+//
+//	s3:AbortMultipartUpload
+//	s3:DeleteObject
+//	s3:GetObject
+//	s3:ListMultipartUploadParts
+//	s3:PutObject
 //
 // While this package uses the official AWS SDK for Go, S3Store is able
 // to work with any S3-compatible service such as Riak CS. In order to change
 // the HTTP endpoint used for sending requests to, consult the AWS Go SDK
 // (http://docs.aws.amazon.com/sdk-for-go/api/aws/Config.html#WithEndpoint-instance_method).
 //
-// Implementation
+// # Implementation
 //
 // Once a new tus upload is initiated, multiple objects in S3 are created:
 //
@@ -49,7 +50,7 @@
 // info object is also deleted. If the upload has been finished already, the
 // finished object containing the entire upload is also removed.
 //
-// Considerations
+// # Considerations
 //
 // In order to support tus' principle of resumable upload, S3's Multipart-Uploads
 // are internally used.
@@ -83,8 +84,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tus/tusd/internal/uid"
-	"github.com/tus/tusd/pkg/handler"
+	"github.com/im-x/tusd/internal/uid"
+	"github.com/im-x/tusd/pkg/handler"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"

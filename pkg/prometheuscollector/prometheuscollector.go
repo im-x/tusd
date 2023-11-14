@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"sync/atomic"
 
-	"github.com/tus/tusd/pkg/handler"
+	"github.com/im-x/tusd/pkg/handler"
 
 	"github.com/prometheus/client_golang/prometheus"
 )

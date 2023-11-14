@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tus/tusd/pkg/handler"
+	"github.com/im-x/tusd/pkg/handler"
 
 	"gopkg.in/Acconut/lockfile.v1"
 )

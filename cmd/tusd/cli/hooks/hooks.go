@@ -1,7 +1,7 @@
 package hooks
 
 import (
-	"github.com/tus/tusd/pkg/handler"
+	"github.com/im-x/tusd/pkg/handler"
 )
 
 type HookHandler interface {

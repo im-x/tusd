@@ -11,11 +11,11 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/tus/tusd/pkg/gcsstore"
-	"github.com/tus/tusd/pkg/handler"
+	"github.com/im-x/tusd/pkg/gcsstore"
+	"github.com/im-x/tusd/pkg/handler"
 )
 
-// go:generate mockgen -destination=./gcsstore_mock_test.go -package=gcsstore_test github.com/tus/tusd/pkg/gcsstore GCSReader,GCSAPI
+// go:generate mockgen -destination=./gcsstore_mock_test.go -package=gcsstore_test github.com/im-x/tusd/pkg/gcsstore GCSReader,GCSAPI
 
 const mockID = "123456789abcdefghijklmnopqrstuvwxyz"
 const mockBucket = "bucket"

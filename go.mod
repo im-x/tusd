@@ -1,4 +1,4 @@
-module github.com/tus/tusd
+module github.com/im-x/tusd
 
 // Specify the Go version needed for the Heroku deployment
 // See https://github.com/heroku/heroku-buildpack-go#go-module-specifics
