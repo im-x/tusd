@@ -34,14 +34,15 @@ type Config struct {
 	NotifyUploadProgress bool
 	// NotifyCreatedUploads indicates whether sending notifications about
 	// the upload having been created using the CreatedUploads channel should be enabled.
-	NotifyCreatedUploads bool
+	//NotifyCreatedUploads bool
 	// Logger is the logger to use internally, mostly for printing requests.
 	Logger *log.Logger
 	// Respect the X-Forwarded-Host, X-Forwarded-Proto and Forwarded headers
 	// potentially set by proxies when generating an absolute URL in the
 	// response to POST requests.
 	RespectForwardedHeaders bool
-	// PreUploadCreateCallback will be invoked before a new upload is created, if the
+	// PreUploadCreateCallback 上传创建前的回调，可以里面做上传鉴权
+	// will be invoked before a new upload is created, if the
 	// property is supplied. If the callback returns nil, the upload will be created.
 	// Otherwise the HTTP request will be aborted. This can be used to implement
 	// validation of upload metadata etc.
@@ -50,10 +51,12 @@ type Config struct {
 	// a response is returned to the client. Error responses from the callback will be passed
 	// back to the client. This can be used to implement post-processing validation.
 	// 这个方法是每次上传完成之前的callback，而不仅仅是整个文件上传完成
-	PreFinishResponseCallback func(hook HookEvent) error
-	// PreCompleteUploadsCallBack 文件上传完成后的处理
-	PreCompleteUploadsCallBack func(hook HookEvent) error
-	// PreGetFileCallback will be invoked before get file
+	//PreFinishResponseCallback func(hook HookEvent) error
+	// CompleteUploadCreateCallback 上传创建完成后回调。可以在里面记录文件正在上传状态
+	CompleteUploadCreateCallback func(hook HookEvent) error
+	// CompleteUploadCallBack 文件上传完成后的处理。可以在里面记录文件信息、图片压缩同步等
+	CompleteUploadCallBack func(hook HookEvent) error
+	// PreGetFileCallback 下载文件前的回调，可以做下载鉴权
 	PreGetFileCallback func(r *http.Request) error
 	// PreHeadFileCallback will be invoked before head file
 	PreHeadFileCallback func(r *http.Request) error

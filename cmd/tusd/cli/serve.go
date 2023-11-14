@@ -31,7 +31,7 @@ func Serve() {
 		NotifyCompleteUploads:   true,
 		NotifyTerminatedUploads: true,
 		NotifyUploadProgress:    true,
-		NotifyCreatedUploads:    true,
+		//NotifyCreatedUploads:    true,
 	}
 
 	if err := SetupPreHooks(&config); err != nil {
