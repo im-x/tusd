@@ -366,6 +366,13 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	info.ID = r.Header.Get("unique_id")
+	with_ok = r.Header.Get("with_ok")
+	if with_ok != "" {
+		w.Header().Set("FileInfo", with_ok)
+		handler.sendResp(w, r, http.StatusConflict)
+		return
+	}
 
 	upload, err := handler.composer.Core.NewUpload(ctx, info)
 	if err != nil {
