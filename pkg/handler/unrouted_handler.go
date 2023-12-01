@@ -9,6 +9,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -85,6 +86,7 @@ type HTTPRequest struct {
 	RemoteAddr string
 	// Header contains all HTTP headers as present in the HTTP request.
 	Header http.Header
+	URL    *url.URL
 }
 
 // HookEvent represents an event from tusd which can be handled by the application.
@@ -107,6 +109,7 @@ func newHookEvent(info FileInfo, r *http.Request, w http.ResponseWriter) HookEve
 			URI:        r.RequestURI,
 			RemoteAddr: r.RemoteAddr,
 			Header:     r.Header,
+			URL:        r.URL,
 		},
 		HttpResponseWriter: w,
 	}
