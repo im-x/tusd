@@ -87,6 +87,7 @@ type HTTPRequest struct {
 	// Header contains all HTTP headers as present in the HTTP request.
 	Header http.Header
 	URL    *url.URL
+	Body   io.ReadCloser
 }
 
 // HookEvent represents an event from tusd which can be handled by the application.
@@ -110,6 +111,7 @@ func newHookEvent(info FileInfo, r *http.Request, w http.ResponseWriter) HookEve
 			RemoteAddr: r.RemoteAddr,
 			Header:     r.Header,
 			URL:        r.URL,
+			Body:       r.Body,
 		},
 		HttpResponseWriter: w,
 	}
@@ -298,7 +300,7 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 	with_ok := r.Header.Get("with_ok")
 	if with_ok != "" {
 		w.Header().Set("FileInfo", with_ok)
-		handler.sendResp(w, r, http.StatusConflict)
+		handler.sendResp(w, r, http.StatusCreated)
 		return
 	}
 
@@ -373,7 +375,7 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 	with_ok = r.Header.Get("with_ok")
 	if with_ok != "" {
 		w.Header().Set("FileInfo", with_ok)
-		handler.sendResp(w, r, http.StatusConflict)
+		handler.sendResp(w, r, http.StatusCreated)
 		return
 	}
 
