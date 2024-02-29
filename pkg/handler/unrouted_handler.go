@@ -378,19 +378,21 @@ func (handler *UnroutedHandler) PostFile(w http.ResponseWriter, r *http.Request)
 		handler.sendResp(w, r, http.StatusCreated)
 		return
 	}
-
+	start := time.Now()
 	upload, err := handler.composer.Core.NewUpload(ctx, info)
 	if err != nil {
 		handler.sendError(w, r, err)
 		return
 	}
-
+	handler.log("NewUpload", "ID", info.ID, "cost", time.Since(start).String())
+	start = time.Now()
 	info, err = upload.GetInfo(ctx)
 	if err != nil {
 		handler.sendError(w, r, err)
 		return
 	}
-
+	handler.log("NewUpload upload.GetInfo(ctx)", "ID", info.ID, "cost", time.Since(start).String())
+	start = time.Now()
 	id := info.ID
 
 	// Add the Location header directly after creating the new resource to even
