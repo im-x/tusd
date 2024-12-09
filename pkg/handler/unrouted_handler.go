@@ -847,6 +847,11 @@ var mimeInlineBrowserWhitelist = map[string]struct{}{
 	"audio/ogg":       struct{}{},
 	"video/ogg ":      struct{}{},
 	"application/ogg": struct{}{},
+
+	"video/mp4":   struct{}{},
+	"video/avi":   struct{}{},
+	"video/x-flv": struct{}{},
+	"video/mkv":   struct{}{},
 }
 
 // filterContentType returns the values for the Content-Type and
