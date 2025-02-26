@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"math"
@@ -815,11 +817,56 @@ func (handler *UnroutedHandler) GetFile(w http.ResponseWriter, r *http.Request) 
 		handler.sendError(w, r, err)
 		return
 	}
+	rangeHeader := r.Header.Get("Range")
+	// 非Range请求
+	if rangeHeader == "" || rangeHeader == "bytes=0-" {
+		handler.sendResp(w, r, http.StatusOK)
+		io.Copy(w, src)
 
-	handler.sendResp(w, r, http.StatusOK)
-	io.Copy(w, src)
+		// Try to close the reader if the io.Closer interface is implemented
+		if closer, ok := src.(io.Closer); ok {
+			closer.Close()
+		}
+		return
+	}
+	// Range请求
+	// Parse the range header
+	var start, end int64
+	_, err = fmt.Sscanf(rangeHeader, "bytes=%d-%d", &start, &end)
+	if err != nil {
+		if _, err := fmt.Sscanf(rangeHeader, "bytes=%d-", &start); err != nil {
+			handler.sendError(w, r, fmt.Errorf("invalid Range header: %v", err))
+			return
+		}
+	}
 
-	// Try to close the reader if the io.Closer interface is implemented
+	// If end is missing, set it to the end of the file
+	if end == 0 {
+		end = info.Offset - 1
+	}
+
+	// Ensure the range is within the file size
+	if start < 0 || end >= info.Offset || start > end {
+		handler.sendError(w, r, fmt.Errorf("Range not satisfiable"))
+		return
+	}
+
+	// Set the Content-Range header
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, info.Offset))
+	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+	handler.sendResp(w, r, http.StatusPartialContent)
+
+	// 创建一个缓冲区用于高效跳过数据
+	bufferedReader := bufio.NewReader(src)
+	// 跳过起始部分
+	if _, err := io.CopyN(io.Discard, bufferedReader, int64(start)); err != nil && err != io.EOF {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 使用 LimitReader 限制读取范围
+	limitReader := io.LimitReader(bufferedReader, int64(end-start+1))
+	io.Copy(w, limitReader)
 	if closer, ok := src.(io.Closer); ok {
 		closer.Close()
 	}
