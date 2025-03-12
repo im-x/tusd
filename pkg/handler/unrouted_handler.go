@@ -1256,7 +1256,7 @@ func ParseMetadataHeader(header string) map[string]string {
 				continue
 			}
 
-			value = string(dec)
+			value = strings.TrimSpace(string(dec))
 		}
 
 		meta[key] = value
