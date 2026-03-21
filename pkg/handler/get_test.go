@@ -563,4 +563,224 @@ func TestGet(t *testing.T) {
 			t.Errorf("expected GetReaderRange(2,4), got (%d,%d)", rru.calledStart, rru.calledEnd)
 		}
 	})
+
+	SubTest(t, "FiletypeShorthandMp4", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("video"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 5,
+				MetaData: map[string]string{
+					"filetype": "mp4",
+					"filename": "clip.mp4",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ResHeader: map[string]string{
+				"Content-Type":        "video/mp4",
+				"Content-Disposition": `inline;filename="clip.mp4"`,
+				"Accept-Ranges":       "bytes",
+			},
+			Code:    http.StatusOK,
+			ResBody: "video",
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "FiletypeShorthandMp4Uppercase", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("data"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 4,
+				MetaData: map[string]string{
+					"filetype": "MP4",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ResHeader: map[string]string{
+				"Content-Type":        "video/mp4",
+				"Content-Disposition": "inline",
+				"Accept-Ranges":       "bytes",
+			},
+			Code:    http.StatusOK,
+			ResBody: "data",
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "FiletypeShorthandMp4WithSpaces", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("x"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 1,
+				MetaData: map[string]string{
+					"filetype": "  mp4  ",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ResHeader: map[string]string{
+				"Content-Type":        "video/mp4",
+				"Content-Disposition": "inline",
+			},
+			Code:    http.StatusOK,
+			ResBody: "x",
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "FiletypeShorthandUnknownStillAttachment", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("bin"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 3,
+				MetaData: map[string]string{
+					"filetype": "xyz",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ResHeader: map[string]string{
+				"Content-Type":        "application/octet-stream",
+				"Content-Disposition": "attachment",
+			},
+			Code:    http.StatusOK,
+			ResBody: "bin",
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "FiletypeShorthandJpg", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("img"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 3,
+				MetaData: map[string]string{
+					"filetype": "jpg",
+					"filename": "photo.jpg",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ResHeader: map[string]string{
+				"Content-Type":        "image/jpeg",
+				"Content-Disposition": `inline;filename="photo.jpg"`,
+			},
+			Code:    http.StatusOK,
+			ResBody: "img",
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "FiletypeShorthandPng", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("x"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 1,
+				MetaData: map[string]string{
+					"filetype": "png",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ResHeader: map[string]string{
+				"Content-Type":        "image/png",
+				"Content-Disposition": "inline",
+			},
+			Code:    http.StatusOK,
+			ResBody: "x",
+		}).Run(handler, t)
+	})
 }

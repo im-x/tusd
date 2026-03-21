@@ -952,6 +952,50 @@ func (handler *UnroutedHandler) GetFile(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// filetypeShorthandToMIME maps shorthand metadata values (e.g. "mp4") to
+// canonical MIME types that are in mimeInlineBrowserWhitelist. Only entries
+// mapping to whitelisted types are allowed to avoid expanding attack surface.
+var filetypeShorthandToMIME = map[string]string{
+	"txt":   "text/plain",
+	"plain": "text/plain",
+
+	"png":  "image/png",
+	"jpeg": "image/jpeg",
+	"jpg":  "image/jpeg",
+	"gif":  "image/gif",
+	"bmp":  "image/bmp",
+	"webp": "image/webp",
+
+	"wave":    "audio/wave",
+	"wav":     "audio/wav",
+	"x-wav":   "audio/x-wav",
+	"x-pn-wav": "audio/x-pn-wav",
+	"webm":    "video/webm",
+	"ogg":     "application/ogg",
+
+	"mp4": "video/mp4",
+	"avi": "video/avi",
+	"flv": "video/x-flv",
+	"mkv": "video/mkv",
+}
+
+// normalizeMetadataFiletype normalizes the filetype from metadata: trims
+// whitespace, and expands known shorthands (e.g. "mp4") to canonical MIME
+// (e.g. "video/mp4") for inline playback compatibility.
+func normalizeMetadataFiletype(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return trimmed
+	}
+	if reMimeType.MatchString(trimmed) {
+		return trimmed
+	}
+	if canonical, ok := filetypeShorthandToMIME[strings.ToLower(trimmed)]; ok {
+		return canonical
+	}
+	return trimmed
+}
+
 // mimeInlineBrowserWhitelist is a map containing MIME types which should be
 // allowed to be rendered by browser inline, instead of being forced to be
 // downloadd. For example, HTML or SVG files are not allowed, since they may
@@ -991,7 +1035,7 @@ var mimeInlineBrowserWhitelist = map[string]struct{}{
 // from the "fileame" and "filetype".
 // See https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition
 func filterContentType(info FileInfo) (contentType string, contentDisposition string) {
-	filetype := info.MetaData["filetype"]
+	filetype := normalizeMetadataFiletype(info.MetaData["filetype"])
 
 	if reMimeType.MatchString(filetype) {
 		// If the filetype from metadata is well formed, we forward use this
