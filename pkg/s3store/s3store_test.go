@@ -26,6 +26,7 @@ var _ handler.DataStore = S3Store{}
 var _ handler.TerminaterDataStore = S3Store{}
 var _ handler.ConcaterDataStore = S3Store{}
 var _ handler.LengthDeferrerDataStore = S3Store{}
+var _ handler.RangeReadableUpload = (*s3Upload)(nil)
 
 func TestNewUpload(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
@@ -560,6 +561,94 @@ func TestGetReaderNotFinished(t *testing.T) {
 	assert.Nil(err)
 
 	content, err := upload.GetReader(context.Background())
+	assert.Nil(content)
+	assert.Equal("cannot stream non-finished upload", err.Error())
+}
+
+func TestGetReaderRange(t *testing.T) {
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+	assert := assert.New(t)
+
+	s3obj := NewMockS3API(mockCtrl)
+	store := New("bucket", s3obj)
+
+	s3obj.EXPECT().GetObjectWithContext(context.Background(), &s3.GetObjectInput{
+		Bucket: aws.String("bucket"),
+		Key:    aws.String("uploadId"),
+		Range:  aws.String("bytes=5-10"),
+	}).Return(&s3.GetObjectOutput{
+		Body: ioutil.NopCloser(bytes.NewReader([]byte(`world!`))),
+	}, nil)
+
+	upload, err := store.GetUpload(context.Background(), "uploadId+multipartId")
+	assert.Nil(err)
+
+	content, err := upload.(handler.RangeReadableUpload).GetReaderRange(context.Background(), 5, 10)
+	assert.Nil(err)
+	data, _ := ioutil.ReadAll(content)
+	assert.Equal("world!", string(data))
+	content.Close()
+}
+
+func TestGetReaderRangeNotFound(t *testing.T) {
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+	assert := assert.New(t)
+
+	s3obj := NewMockS3API(mockCtrl)
+	store := New("bucket", s3obj)
+
+	gomock.InOrder(
+		s3obj.EXPECT().GetObjectWithContext(context.Background(), &s3.GetObjectInput{
+			Bucket: aws.String("bucket"),
+			Key:    aws.String("uploadId"),
+			Range:  aws.String("bytes=0-5"),
+		}).Return(nil, awserr.New("NoSuchKey", "The specified key does not exist.", nil)),
+		s3obj.EXPECT().ListPartsWithContext(context.Background(), &s3.ListPartsInput{
+			Bucket:   aws.String("bucket"),
+			Key:      aws.String("uploadId"),
+			UploadId: aws.String("multipartId"),
+			MaxParts: aws.Int64(0),
+		}).Return(nil, awserr.New("NoSuchUpload", "The specified upload does not exist.", nil)),
+	)
+
+	upload, err := store.GetUpload(context.Background(), "uploadId+multipartId")
+	assert.Nil(err)
+
+	content, err := upload.(handler.RangeReadableUpload).GetReaderRange(context.Background(), 0, 5)
+	assert.Nil(content)
+	assert.Equal(handler.ErrNotFound, err)
+}
+
+func TestGetReaderRangeNotFinished(t *testing.T) {
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+	assert := assert.New(t)
+
+	s3obj := NewMockS3API(mockCtrl)
+	store := New("bucket", s3obj)
+
+	gomock.InOrder(
+		s3obj.EXPECT().GetObjectWithContext(context.Background(), &s3.GetObjectInput{
+			Bucket: aws.String("bucket"),
+			Key:    aws.String("uploadId"),
+			Range:  aws.String("bytes=0-5"),
+		}).Return(nil, awserr.New("NoSuchKey", "The specified key does not exist.", nil)),
+		s3obj.EXPECT().ListPartsWithContext(context.Background(), &s3.ListPartsInput{
+			Bucket:   aws.String("bucket"),
+			Key:      aws.String("uploadId"),
+			UploadId: aws.String("multipartId"),
+			MaxParts: aws.Int64(0),
+		}).Return(&s3.ListPartsOutput{
+			Parts: []*s3.Part{},
+		}, nil),
+	)
+
+	upload, err := store.GetUpload(context.Background(), "uploadId+multipartId")
+	assert.Nil(err)
+
+	content, err := upload.(handler.RangeReadableUpload).GetReaderRange(context.Background(), 0, 5)
 	assert.Nil(content)
 	assert.Equal("cannot stream non-finished upload", err.Error())
 }

@@ -536,27 +536,51 @@ func (upload s3Upload) fetchInfo(ctx context.Context) (info handler.FileInfo, er
 func (upload s3Upload) GetReader(ctx context.Context) (io.Reader, error) {
 	id := upload.id
 	store := upload.store
-	uploadId, multipartId := splitIds(id)
+	uploadId, _ := splitIds(id)
 
-	// Attempt to get upload content
 	res, err := store.Service.GetObjectWithContext(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(store.Bucket),
 		Key:    store.keyWithPrefix(uploadId),
 	})
 	if err == nil {
-		// No error occurred, and we are able to stream the object
 		return res.Body, nil
 	}
 
-	// If the file cannot be found, we ignore this error and continue since the
-	// upload may not have been finished yet. In this case we do not want to
-	// return a ErrNotFound but a more meaning-full message.
-	if !isAwsError(err, "NoSuchKey") {
-		return nil, err
+	return nil, upload.handleGetObjectError(ctx, err)
+}
+
+// GetReaderRange implements handler.RangeReadableUpload. It uses the S3 native
+// Range parameter to fetch only the requested byte range, avoiding full-object
+// download and application-layer skip.
+func (upload s3Upload) GetReaderRange(ctx context.Context, start, end int64) (io.ReadCloser, error) {
+	id := upload.id
+	store := upload.store
+	uploadId, _ := splitIds(id)
+
+	rangeVal := fmt.Sprintf("bytes=%d-%d", start, end)
+	res, err := store.Service.GetObjectWithContext(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(store.Bucket),
+		Key:    store.keyWithPrefix(uploadId),
+		Range:  aws.String(rangeVal),
+	})
+	if err == nil {
+		return res.Body, nil
 	}
 
-	// Test whether the multipart upload exists to find out if the upload
-	// never existsted or just has not been finished yet
+	return nil, upload.handleGetObjectError(ctx, err)
+}
+
+// handleGetObjectError translates a GetObject error into the appropriate
+// handler-level error by distinguishing "not finished" from "not found".
+func (upload s3Upload) handleGetObjectError(ctx context.Context, err error) error {
+	id := upload.id
+	store := upload.store
+	uploadId, multipartId := splitIds(id)
+
+	if !isAwsError(err, "NoSuchKey") {
+		return err
+	}
+
 	_, err = store.Service.ListPartsWithContext(ctx, &s3.ListPartsInput{
 		Bucket:   aws.String(store.Bucket),
 		Key:      store.keyWithPrefix(uploadId),
@@ -564,16 +588,14 @@ func (upload s3Upload) GetReader(ctx context.Context) (io.Reader, error) {
 		MaxParts: aws.Int64(0),
 	})
 	if err == nil {
-		// The multipart upload still exists, which means we cannot download it yet
-		return nil, handler.NewHTTPError(errors.New("cannot stream non-finished upload"), http.StatusBadRequest)
+		return handler.NewHTTPError(errors.New("cannot stream non-finished upload"), http.StatusBadRequest)
 	}
 
 	if isAwsError(err, "NoSuchUpload") {
-		// Neither the object nor the multipart upload exists, so we return a 404
-		return nil, handler.ErrNotFound
+		return handler.ErrNotFound
 	}
 
-	return nil, err
+	return err
 }
 
 func (upload s3Upload) Terminate(ctx context.Context) error {
