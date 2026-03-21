@@ -88,6 +88,17 @@ type DataStore interface {
 	GetUpload(ctx context.Context, id string) (upload Upload, err error)
 }
 
+// RangeReadableUpload is an optional interface that Upload implementations may
+// support to enable efficient byte-range reads. When present, the handler will
+// use GetReaderRange instead of GetReader+skip for HTTP Range requests,
+// allowing backends like S3 to leverage native range fetches.
+//
+// start and end are inclusive byte offsets (matching HTTP Content-Range
+// semantics). The caller guarantees 0 <= start <= end < fileSize.
+type RangeReadableUpload interface {
+	GetReaderRange(ctx context.Context, start, end int64) (io.ReadCloser, error)
+}
+
 type TerminatableUpload interface {
 	// Terminate an upload so any further requests to the resource, both reading
 	// and writing, must return os.ErrNotExist or similar.

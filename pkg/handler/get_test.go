@@ -2,6 +2,8 @@ package handler_test
 
 import (
 	"context"
+	"io"
+	"io/ioutil"
 	"net/http"
 	"strings"
 	"testing"
@@ -18,6 +20,24 @@ type closingStringReader struct {
 func (reader *closingStringReader) Close() error {
 	reader.closed = true
 	return nil
+}
+
+// rangeReadableUpload wraps a MockFullUpload and adds RangeReadableUpload
+// support so the handler takes the native-range fast path.
+type rangeReadableUpload struct {
+	*MockFullUpload
+	rangeReader io.ReadCloser
+	rangeErr    error
+	calledStart int64
+	calledEnd   int64
+	rangeCalled bool
+}
+
+func (u *rangeReadableUpload) GetReaderRange(_ context.Context, start, end int64) (io.ReadCloser, error) {
+	u.rangeCalled = true
+	u.calledStart = start
+	u.calledEnd = end
+	return u.rangeReader, u.rangeErr
 }
 
 func TestGet(t *testing.T) {
@@ -63,6 +83,7 @@ func TestGet(t *testing.T) {
 				"Content-Length":      "5",
 				"Content-Type":        "image/jpeg",
 				"Content-Disposition": `inline;filename="file.jpg\"evil"`,
+				"Accept-Ranges":       "bytes",
 			},
 			Code:    http.StatusOK,
 			ResBody: "hello",
@@ -95,6 +116,7 @@ func TestGet(t *testing.T) {
 			ResHeader: map[string]string{
 				"Content-Length":      "0",
 				"Content-Disposition": `attachment`,
+				"Accept-Ranges":       "bytes",
 			},
 			Code:    http.StatusNoContent,
 			ResBody: "",
@@ -164,5 +186,381 @@ func TestGet(t *testing.T) {
 			Code:    http.StatusNoContent,
 			ResBody: "",
 		}).Run(handler, t)
+	})
+
+	SubTest(t, "RangeExplicitFallback", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("hello world!"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 12,
+				MetaData: map[string]string{
+					"filetype": "text/plain",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ReqHeader: map[string]string{
+				"Range": "bytes=2-4",
+			},
+			ResHeader: map[string]string{
+				"Content-Length": "3",
+				"Content-Range":  "bytes 2-4/12",
+				"Accept-Ranges":  "bytes",
+			},
+			Code:    http.StatusPartialContent,
+			ResBody: "llo",
+		}).Run(handler, t)
+
+		if !reader.closed {
+			t.Error("expected reader to be closed")
+		}
+	})
+
+	SubTest(t, "RangeFirstByte", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("hello"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 5,
+				MetaData: map[string]string{
+					"filetype": "text/plain",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ReqHeader: map[string]string{
+				"Range": "bytes=0-0",
+			},
+			ResHeader: map[string]string{
+				"Content-Length": "1",
+				"Content-Range":  "bytes 0-0/5",
+			},
+			Code:    http.StatusPartialContent,
+			ResBody: "h",
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "RangeOpenEnd", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("hello"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 5,
+				MetaData: map[string]string{
+					"filetype": "text/plain",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ReqHeader: map[string]string{
+				"Range": "bytes=3-",
+			},
+			ResHeader: map[string]string{
+				"Content-Length": "2",
+				"Content-Range":  "bytes 3-4/5",
+			},
+			Code:    http.StatusPartialContent,
+			ResBody: "lo",
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "RangeSuffix", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("hello"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 5,
+				MetaData: map[string]string{
+					"filetype": "text/plain",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ReqHeader: map[string]string{
+				"Range": "bytes=-2",
+			},
+			ResHeader: map[string]string{
+				"Content-Length": "2",
+				"Content-Range":  "bytes 3-4/5",
+			},
+			Code:    http.StatusPartialContent,
+			ResBody: "lo",
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "RangeFullFileReturns200", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("hello"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 5,
+				MetaData: map[string]string{
+					"filetype": "text/plain",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ReqHeader: map[string]string{
+				"Range": "bytes=0-",
+			},
+			ResHeader: map[string]string{
+				"Content-Length": "5",
+			},
+			Code:    http.StatusOK,
+			ResBody: "hello",
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "RangeNotSatisfiable", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 5,
+				MetaData: map[string]string{
+					"filetype": "text/plain",
+				},
+			}, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ReqHeader: map[string]string{
+				"Range": "bytes=10-20",
+			},
+			ResHeader: map[string]string{
+				"Content-Range": "bytes */5",
+			},
+			Code: http.StatusRequestedRangeNotSatisfiable,
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "RangeInvalidSyntax", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 5,
+				MetaData: map[string]string{
+					"filetype": "text/plain",
+				},
+			}, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ReqHeader: map[string]string{
+				"Range": "invalid",
+			},
+			ResHeader: map[string]string{
+				"Content-Range": "bytes */5",
+			},
+			Code: http.StatusRequestedRangeNotSatisfiable,
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "RangeMultiRangeUnsupported", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 10,
+				MetaData: map[string]string{
+					"filetype": "text/plain",
+				},
+			}, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ReqHeader: map[string]string{
+				"Range": "bytes=0-1,3-4",
+			},
+			Code: http.StatusRequestedRangeNotSatisfiable,
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "AttachmentHasAcceptRanges", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("hello"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 5,
+				MetaData: map[string]string{
+					"filetype": "application/pdf",
+					"filename": "doc.pdf",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ResHeader: map[string]string{
+				"Content-Disposition": `attachment;filename="doc.pdf"`,
+				"Accept-Ranges":       "bytes",
+			},
+			Code:    http.StatusOK,
+			ResBody: "hello",
+		}).Run(handler, t)
+	})
+
+	SubTest(t, "RangeNativeReadPath", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		baseUpload := NewMockFullUpload(ctrl)
+
+		rangeBody := ioutil.NopCloser(strings.NewReader("llo"))
+		rru := &rangeReadableUpload{
+			MockFullUpload: baseUpload,
+			rangeReader:    rangeBody,
+		}
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(rru, nil),
+			baseUpload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 12,
+				MetaData: map[string]string{
+					"filetype": "text/plain",
+				},
+			}, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes",
+			ReqHeader: map[string]string{
+				"Range": "bytes=2-4",
+			},
+			ResHeader: map[string]string{
+				"Content-Length": "3",
+				"Content-Range":  "bytes 2-4/12",
+			},
+			Code:    http.StatusPartialContent,
+			ResBody: "llo",
+		}).Run(handler, t)
+
+		if !rru.rangeCalled {
+			t.Error("expected GetReaderRange to be called")
+		}
+		if rru.calledStart != 2 || rru.calledEnd != 4 {
+			t.Errorf("expected GetReaderRange(2,4), got (%d,%d)", rru.calledStart, rru.calledEnd)
+		}
 	})
 }

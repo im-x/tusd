@@ -73,6 +73,8 @@ var (
 	ErrUploadLengthAndUploadDeferLength = NewHTTPError(errors.New("provided both Upload-Length and Upload-Defer-Length"), http.StatusBadRequest)
 	ErrInvalidUploadDeferLength         = NewHTTPError(errors.New("invalid Upload-Defer-Length header"), http.StatusBadRequest)
 	ErrUploadStoppedByServer            = NewHTTPError(errors.New("upload has been stopped by server"), http.StatusBadRequest)
+	ErrRangeNotSatisfiable              = NewHTTPError(errors.New("range not satisfiable"), http.StatusRequestedRangeNotSatisfiable)
+	ErrInvalidRange                     = NewHTTPError(errors.New("invalid Range header"), http.StatusRequestedRangeNotSatisfiable)
 
 	errReadTimeout     = errors.New("read tcp: i/o timeout")
 	errConnectionReset = errors.New("read tcp: connection reset by peer")
@@ -758,6 +760,84 @@ func (handler *UnroutedHandler) finishUploadIfComplete(ctx context.Context, uplo
 	return nil
 }
 
+// rangeSpec holds a parsed single byte-range from an HTTP Range header.
+type rangeSpec struct {
+	start int64
+	end   int64 // inclusive
+}
+
+// parseRange parses a single-range HTTP Range header value against the given
+// file size. It supports:
+//   - bytes=start-end   (explicit closed range)
+//   - bytes=start-      (from start to EOF)
+//   - bytes=-suffix     (last N bytes)
+//
+// Multi-range (comma-separated) is explicitly unsupported and returns an error.
+// Returns (nil, nil) when the header is empty or equivalent to the full file
+// (bytes=0-), meaning the caller should serve the complete content.
+func parseRange(rangeHeader string, size int64) (*rangeSpec, error) {
+	if rangeHeader == "" {
+		return nil, nil
+	}
+
+	if !strings.HasPrefix(rangeHeader, "bytes=") {
+		return nil, ErrInvalidRange
+	}
+	spec := strings.TrimPrefix(rangeHeader, "bytes=")
+
+	if strings.Contains(spec, ",") {
+		return nil, ErrInvalidRange
+	}
+
+	dashIdx := strings.Index(spec, "-")
+	if dashIdx < 0 {
+		return nil, ErrInvalidRange
+	}
+
+	startStr := spec[:dashIdx]
+	endStr := spec[dashIdx+1:]
+
+	var start, end int64
+
+	if startStr == "" {
+		// bytes=-suffix: last N bytes
+		suffix, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || suffix <= 0 {
+			return nil, ErrInvalidRange
+		}
+		start = size - suffix
+		if start < 0 {
+			start = 0
+		}
+		end = size - 1
+	} else {
+		var err error
+		start, err = strconv.ParseInt(startStr, 10, 64)
+		if err != nil || start < 0 {
+			return nil, ErrInvalidRange
+		}
+		if endStr == "" {
+			end = size - 1
+		} else {
+			end, err = strconv.ParseInt(endStr, 10, 64)
+			if err != nil {
+				return nil, ErrInvalidRange
+			}
+		}
+	}
+
+	// bytes=0- is equivalent to the full file
+	if start == 0 && end == size-1 {
+		return nil, nil
+	}
+
+	if start > end || start >= size || end >= size {
+		return nil, ErrRangeNotSatisfiable
+	}
+
+	return &rangeSpec{start: start, end: end}, nil
+}
+
 // GetFile handles requests to download a file using a GET request. This is not
 // part of the specification.
 func (handler *UnroutedHandler) GetFile(w http.ResponseWriter, r *http.Request) {
@@ -796,77 +876,77 @@ func (handler *UnroutedHandler) GetFile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Set headers before sending responses
-	w.Header().Set("Content-Length", strconv.FormatInt(info.Offset, 10))
-
 	contentType, contentDisposition := filterContentType(info)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", contentDisposition)
-	if strings.Contains(contentDisposition, "inline") {
-		w.Header().Set("Accept-Ranges", "bytes")
-	}
+	w.Header().Set("Accept-Ranges", "bytes")
 
-	// If no data has been uploaded yet, respond with an empty "204 No Content" status.
 	if info.Offset == 0 {
+		w.Header().Set("Content-Length", "0")
 		handler.sendResp(w, r, http.StatusNoContent)
 		return
 	}
 
-	src, err := upload.GetReader(ctx)
+	rng, err := parseRange(r.Header.Get("Range"), info.Offset)
 	if err != nil {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", info.Offset))
 		handler.sendError(w, r, err)
 		return
 	}
-	rangeHeader := r.Header.Get("Range")
-	// 非Range请求
-	if rangeHeader == "" || rangeHeader == "bytes=0-" {
+
+	if rng == nil {
+		// Full-content response
+		w.Header().Set("Content-Length", strconv.FormatInt(info.Offset, 10))
+
+		src, err := upload.GetReader(ctx)
+		if err != nil {
+			handler.sendError(w, r, err)
+			return
+		}
 		handler.sendResp(w, r, http.StatusOK)
 		io.Copy(w, src)
-
-		// Try to close the reader if the io.Closer interface is implemented
 		if closer, ok := src.(io.Closer); ok {
 			closer.Close()
 		}
 		return
 	}
-	// Range请求
-	// Parse the range header
-	var start, end int64
-	_, err = fmt.Sscanf(rangeHeader, "bytes=%d-%d", &start, &end)
+
+	// Partial content response
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rng.start, rng.end, info.Offset))
+	w.Header().Set("Content-Length", strconv.FormatInt(rng.end-rng.start+1, 10))
+
+	// Prefer native range read when the backend supports it
+	if rangeUpload, ok := upload.(RangeReadableUpload); ok {
+		src, err := rangeUpload.GetReaderRange(ctx, rng.start, rng.end)
+		if err != nil {
+			handler.sendError(w, r, err)
+			return
+		}
+		handler.sendResp(w, r, http.StatusPartialContent)
+		io.Copy(w, src)
+		src.Close()
+		return
+	}
+
+	// Fallback: fetch the full stream and skip to the requested offset
+	src, err := upload.GetReader(ctx)
 	if err != nil {
-		if _, err := fmt.Sscanf(rangeHeader, "bytes=%d-", &start); err != nil {
-			handler.sendError(w, r, fmt.Errorf("invalid Range header: %v", err))
+		handler.sendError(w, r, err)
+		return
+	}
+	handler.sendResp(w, r, http.StatusPartialContent)
+
+	bufferedReader := bufio.NewReader(src)
+	if rng.start > 0 {
+		if _, err := io.CopyN(io.Discard, bufferedReader, rng.start); err != nil && err != io.EOF {
+			if closer, ok := src.(io.Closer); ok {
+				closer.Close()
+			}
 			return
 		}
 	}
 
-	// If end is missing, set it to the end of the file
-	if end == 0 {
-		end = info.Offset - 1
-	}
-
-	// Ensure the range is within the file size
-	if start < 0 || end >= info.Offset || start > end {
-		handler.sendError(w, r, fmt.Errorf("Range not satisfiable"))
-		return
-	}
-
-	// Set the Content-Range header
-	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, info.Offset))
-	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
-	handler.sendResp(w, r, http.StatusPartialContent)
-
-	// 创建一个缓冲区用于高效跳过数据
-	bufferedReader := bufio.NewReader(src)
-	// 跳过起始部分
-	if _, err := io.CopyN(io.Discard, bufferedReader, int64(start)); err != nil && err != io.EOF {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// 使用 LimitReader 限制读取范围
-	limitReader := io.LimitReader(bufferedReader, int64(end-start+1))
-	io.Copy(w, limitReader)
+	io.Copy(w, io.LimitReader(bufferedReader, rng.end-rng.start+1))
 	if closer, ok := src.(io.Closer); ok {
 		closer.Close()
 	}
