@@ -877,6 +877,9 @@ func (handler *UnroutedHandler) GetFile(w http.ResponseWriter, r *http.Request) 
 	}
 
 	contentType, contentDisposition := filterContentType(info)
+	if r.URL.Query().Get("inline") == "true" {
+		contentDisposition = forceInlineContentDisposition(contentDisposition)
+	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", contentDisposition)
 	w.Header().Set("Accept-Ranges", "bytes")
@@ -958,6 +961,11 @@ func (handler *UnroutedHandler) GetFile(w http.ResponseWriter, r *http.Request) 
 var filetypeShorthandToMIME = map[string]string{
 	"txt":   "text/plain",
 	"plain": "text/plain",
+	"html":  "text/html",
+	"htm":   "text/html",
+	"css":   "text/css",
+	"js":    "application/javascript",
+	"mjs":   "application/javascript",
 
 	"png":  "image/png",
 	"jpeg": "image/jpeg",
@@ -966,12 +974,12 @@ var filetypeShorthandToMIME = map[string]string{
 	"bmp":  "image/bmp",
 	"webp": "image/webp",
 
-	"wave":    "audio/wave",
-	"wav":     "audio/wav",
-	"x-wav":   "audio/x-wav",
+	"wave":     "audio/wave",
+	"wav":      "audio/wav",
+	"x-wav":    "audio/x-wav",
 	"x-pn-wav": "audio/x-pn-wav",
-	"webm":    "video/webm",
-	"ogg":     "application/ogg",
+	"webm":     "video/webm",
+	"ogg":      "application/ogg",
 
 	"mp4": "video/mp4",
 	"avi": "video/avi",
@@ -1060,6 +1068,13 @@ func filterContentType(info FileInfo) (contentType string, contentDisposition st
 	}
 
 	return contentType, contentDisposition
+}
+
+func forceInlineContentDisposition(contentDisposition string) string {
+	if separator := strings.Index(contentDisposition, ";"); separator >= 0 {
+		return "inline" + contentDisposition[separator:]
+	}
+	return "inline"
 }
 
 // DelFile terminates an upload permanently.

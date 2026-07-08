@@ -783,4 +783,90 @@ func TestGet(t *testing.T) {
 			ResBody: "x",
 		}).Run(handler, t)
 	})
+
+	SubTest(t, "FiletypeShorthandWebAssets", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		tests := []struct {
+			filetype    string
+			contentType string
+		}{
+			{filetype: "html", contentType: "text/html"},
+			{filetype: "css", contentType: "text/css"},
+			{filetype: "js", contentType: "application/javascript"},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.filetype, func(t *testing.T) {
+				reader := &closingStringReader{
+					Reader: strings.NewReader("asset"),
+				}
+
+				ctrl := gomock.NewController(t)
+				defer ctrl.Finish()
+				upload := NewMockFullUpload(ctrl)
+
+				gomock.InOrder(
+					store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+					upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+						Offset: 5,
+						MetaData: map[string]string{
+							"filetype": tt.filetype,
+						},
+					}, nil),
+					upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+				)
+
+				handler, _ := NewHandler(Config{
+					StoreComposer: composer,
+				})
+
+				(&httpTest{
+					Method: "GET",
+					URL:    "yes",
+					ResHeader: map[string]string{
+						"Content-Type":        tt.contentType,
+						"Content-Disposition": "attachment",
+					},
+					Code:    http.StatusOK,
+					ResBody: "asset",
+				}).Run(handler, t)
+			})
+		}
+	})
+
+	SubTest(t, "InlineQueryForcesAttachmentFileTypeInline", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		reader := &closingStringReader{
+			Reader: strings.NewReader("<html></html>"),
+		}
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		upload := NewMockFullUpload(ctrl)
+
+		gomock.InOrder(
+			store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+			upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+				Offset: 13,
+				MetaData: map[string]string{
+					"filetype": "html",
+					"filename": "index.html",
+				},
+			}, nil),
+			upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+		)
+
+		handler, _ := NewHandler(Config{
+			StoreComposer: composer,
+		})
+
+		(&httpTest{
+			Method: "GET",
+			URL:    "yes?inline=true",
+			ResHeader: map[string]string{
+				"Content-Type":        "text/html",
+				"Content-Disposition": `inline;filename="index.html"`,
+			},
+			Code:    http.StatusOK,
+			ResBody: "<html></html>",
+		}).Run(handler, t)
+	})
 }
