@@ -869,4 +869,62 @@ func TestGet(t *testing.T) {
 			ResBody: "<html></html>",
 		}).Run(handler, t)
 	})
+
+	SubTest(t, "ParameterizedMimeTypeReturnsBaseContentType", func(t *testing.T, store *MockFullDataStore, composer *StoreComposer) {
+		tests := []struct {
+			name               string
+			url                string
+			contentDisposition string
+		}{
+			{
+				name:               "default attachment",
+				url:                "yes",
+				contentDisposition: `attachment;filename="style.css"`,
+			},
+			{
+				name:               "inline query",
+				url:                "yes?inline=true",
+				contentDisposition: `inline;filename="style.css"`,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				reader := &closingStringReader{
+					Reader: strings.NewReader("body"),
+				}
+
+				ctrl := gomock.NewController(t)
+				defer ctrl.Finish()
+				upload := NewMockFullUpload(ctrl)
+
+				gomock.InOrder(
+					store.EXPECT().GetUpload(context.Background(), "yes").Return(upload, nil),
+					upload.EXPECT().GetInfo(context.Background()).Return(FileInfo{
+						Offset: 4,
+						MetaData: map[string]string{
+							"filetype": "text/css; charset=utf-8",
+							"filename": "style.css",
+						},
+					}, nil),
+					upload.EXPECT().GetReader(context.Background()).Return(reader, nil),
+				)
+
+				handler, _ := NewHandler(Config{
+					StoreComposer: composer,
+				})
+
+				(&httpTest{
+					Method: "GET",
+					URL:    tt.url,
+					ResHeader: map[string]string{
+						"Content-Type":        "text/css",
+						"Content-Disposition": tt.contentDisposition,
+					},
+					Code:    http.StatusOK,
+					ResBody: "body",
+				}).Run(handler, t)
+			})
+		}
+	})
 }

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"math"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -995,8 +996,8 @@ func normalizeMetadataFiletype(raw string) string {
 	if trimmed == "" {
 		return trimmed
 	}
-	if reMimeType.MatchString(trimmed) {
-		return trimmed
+	if mediaType, _, err := mime.ParseMediaType(trimmed); err == nil && reMimeType.MatchString(mediaType) {
+		return mediaType
 	}
 	if canonical, ok := filetypeShorthandToMIME[strings.ToLower(trimmed)]; ok {
 		return canonical
